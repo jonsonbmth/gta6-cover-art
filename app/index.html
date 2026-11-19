@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunset Press — GTA-style Cover Maker</title>
+<meta name="description" content="Turn any photo and caption into GTA 6-style cover art: multi-panel posters, bold lettering, sunset and neon grades, exported as a PNG. Runs 100% offline.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd166'/%3E%3Cstop offset='.55' stop-color='%23ff2d78'/%3E%3Cstop offset='1' stop-color='%2300e5ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='7' fill='url(%23g)'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+<script type="module" src="src/main.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">SUNSET PRESS</span>
+    <span class="tag">GTA-style cover maker · 100% offline — your photos never leave this machine</span>
+  </div>
+  <div class="top-actions">
+    <label class="size-label">Size
+      <select id="size-select" aria-label="Export size"></select>
+    </label>
+    <button id="export-btn" class="primary" type="button">Export PNG</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <aside class="controls">
+    <section class="card">
+      <h2>Photos</h2>
+      <div id="dropzone" class="dropzone" role="button" tabindex="0">
+        <span class="drop-icon">＋</span>
+        <span>Drop photos here or click to add</span>
+        <small>JPG, PNG, WebP — as many as you like</small>
+      </div>
+      <input id="file-input" type="file" accept="image/*" multiple hidden>
+      <div class="photo-head"><span>Your photos</span><span id="photo-count">0 photos</span></div>
+      <div id="photo-strip" class="photo-strip"></div>
+      <p class="note">Click a photo to put it in the selected panel. Four sample photos are loaded to start.</p>
+    </section>
+
+    <section class="card">
+      <h2>Layout</h2>
+      <div id="layout-pick" class="pick-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Colour grade</h2>
+      <div id="grade-pick" class="swatch-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Caption</h2>
+      <label class="field">Title
+        <input id="title-input" type="text" value="SUNSET RUN" maxlength="24" autocomplete="off">
+      </label>
+      <label class="field">Subtitle
+        <input id="subtitle-input" type="text" value="a night in neon" maxlength="40" autocomplete="off">
+      </label>
+      <label class="field">Title colour
+        <select id="title-color"></select>
+      </label>
+      <label class="field">Badge text
+        <input id="badge-input" type="text" value="NEW RELEASE" maxlength="16" autocomplete="off">
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Finish</h2>
+      <label class="check"><input id="toggle-stars" type="checkbox" checked> Heat-meter stars</label>
+      <label class="check"><input id="toggle-badge" type="checkbox" checked> Badge ribbon</label>
+      <label class="check"><input id="toggle-grain" type="checkbox" checked> Film grain</label>
+    </section>
+  </aside>
+
+  <section class="stage">
+    <div class="canvas-wrap">
+      <canvas id="preview" width="1080" height="1350"></canvas>
+    </div>
+    <div class="panel-bar">
+      <span id="panel-label" class="panel-label">Panel 1</span>
+      <label class="zoom-label">Zoom
+        <input id="zoom-range" type="range" min="1" max="3" step="0.05" value="1">
+        <span id="zoom-value">100%</span>
+      </label>
+      <button id="fill-all" type="button">Fill all panels</button>
+      <button id="reset-crop" type="button">Reset crop</button>
+      <span class="hint">Click a panel to select it · drag to reposition · scroll to zoom</span>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>Sunset Press — an original cover maker. No Rockstar Games logo, artwork or fonts. Fonts: Anton &amp; Pacifico (SIL Open Font License).</span>
+</footer>
+</body>
+</html>
