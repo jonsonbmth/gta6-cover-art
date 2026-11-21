@@ -1,7 +1,10 @@
 // Vice Coast Press — the entry program (Node 22, standard library only).
 // It hands the app in: copies app/ and screenshots/ from beside this file to
 // /output and writes /output/dossier.json with the vendored make.fun library.
-// The grader runs it twice and both runs must write the same bytes.
+// The grader runs it twice and both runs must write the same bytes: this
+// program copies files and builds the dossier from their contents only, so
+// its output is a pure function of the repository (no timestamps, no random
+// values, no network).
 //
 // Try the app first: `node serve.ts`, then open http://localhost:8080.
 // Build the hand-in locally: `mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts`.
