@@ -1,96 +1,104 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sunset Press — GTA-style Cover Maker</title>
-<meta name="description" content="Turn any photo and caption into GTA 6-style cover art: multi-panel posters, bold lettering, sunset and neon grades, exported as a PNG. Runs 100% offline.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffd166'/%3E%3Cstop offset='.55' stop-color='%23ff2d78'/%3E%3Cstop offset='1' stop-color='%2300e5ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='7' fill='url(%23g)'/%3E%3C/svg%3E">
+<title>Vice Coast Press — GTA 6 Cover Art Studio</title>
 <link rel="stylesheet" href="style.css">
-<script type="module" src="src/main.js"></script>
 </head>
 <body>
-<header class="topbar">
+<header id="topbar">
   <div class="brand">
-    <span class="logo">SUNSET PRESS</span>
-    <span class="tag">GTA-style cover maker · 100% offline — your photos never leave this machine</span>
+    <span class="brand-mark">VC</span>
+    <span class="brand-name">VICE COAST PRESS</span>
+    <span class="brand-sub">cover studio · works offline · your photos never leave this machine</span>
   </div>
   <div class="top-actions">
-    <label class="size-label">Size
-      <select id="size-select" aria-label="Export size"></select>
-    </label>
-    <button id="export-btn" class="primary" type="button">Export PNG</button>
+    <button id="undoBtn" type="button" disabled>↩ Undo</button>
+    <button id="redoBtn" type="button" disabled>Redo ↪</button>
+    <button id="saveBtn" type="button">Save project</button>
+    <button id="loadBtn" type="button">Load project</button>
+    <button id="exportAllBtn" type="button">Export all 3 sizes</button>
+    <button id="exportBtn" type="button" class="primary">⬇ Export PNG</button>
   </div>
 </header>
 
-<main class="workspace">
-  <aside class="controls">
-    <section class="card">
-      <h2>Photos</h2>
-      <div id="dropzone" class="dropzone" role="button" tabindex="0">
-        <span class="drop-icon">＋</span>
-        <span>Drop photos here or click to add</span>
-        <small>JPG, PNG, WebP — as many as you like</small>
+<main id="editor">
+  <aside id="sidebar">
+    <section class="panel">
+      <h2>1 · Photos</h2>
+      <label class="upload-btn">＋ Add your photo
+        <input id="photoInput" type="file" accept="image/*">
+      </label>
+      <p class="hint">Pick a sample, or add your own — it goes into the selected panel. Click a panel on the cover, then drag it to move its focus point.</p>
+      <div id="sampleStrip" class="samples"></div>
+    </section>
+
+    <section class="panel">
+      <h2>2 · Layout <span class="count">12</span></h2>
+      <div id="layoutGrid" class="layout-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h2>3 · Grade <span class="count">8</span></h2>
+      <div id="gradeRow" class="grade-row"></div>
+    </section>
+
+    <section class="panel">
+      <h2>4 · Size</h2>
+      <div id="sizeRow" class="size-row"></div>
+    </section>
+
+    <section class="panel">
+      <h2>5 · Lettering</h2>
+      <label>Title<input id="titleInput" type="text" maxlength="30" autocomplete="off"></label>
+      <label>Script subtitle<input id="subtitleInput" type="text" maxlength="32" autocomplete="off"></label>
+      <label>Tagline ribbon<input id="taglineInput" type="text" maxlength="60" autocomplete="off"></label>
+      <label>Press quote<input id="quoteInput" type="text" maxlength="48" autocomplete="off"></label>
+      <label>Quote source<input id="quoteSourceInput" type="text" maxlength="30" autocomplete="off"></label>
+      <label>Credits line<input id="creditsInput" type="text" maxlength="110" autocomplete="off"></label>
+      <div class="row2">
+        <label>Volume<input id="volumeInput" type="text" maxlength="10" autocomplete="off"></label>
+        <label>Seal text<input id="sealInput" type="text" maxlength="20" autocomplete="off"></label>
       </div>
-      <input id="file-input" type="file" accept="image/*" multiple hidden>
-      <div class="photo-head"><span>Your photos</span><span id="photo-count">0 photos</span></div>
-      <div id="photo-strip" class="photo-strip"></div>
-      <p class="note">Click a photo to put it in the selected panel. Four sample photos are loaded to start.</p>
     </section>
 
-    <section class="card">
-      <h2>Layout</h2>
-      <div id="layout-pick" class="pick-list"></div>
+    <section class="panel">
+      <h2>6 · Selected panel</h2>
+      <div id="panelList" class="panel-list"></div>
+      <label>Photo in this panel<select id="panelPhoto"></select></label>
+      <label>Role label<input id="roleInput" type="text" maxlength="18" autocomplete="off"></label>
+      <label>Role subline<input id="sublineInput" type="text" maxlength="42" autocomplete="off"></label>
+      <label>Zoom <span id="zoomVal" class="val">100%</span>
+        <input id="zoomInput" type="range" min="1" max="2.5" step="0.05" value="1">
+      </label>
+      <label>Panel filter<select id="filterSelect"></select></label>
+      <div class="row2">
+        <button id="faceFocusBtn" type="button">◉ Smart face focus</button>
+        <button id="centerFocusBtn" type="button">◎ Center + reset zoom</button>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Colour grade</h2>
-      <div id="grade-pick" class="swatch-list"></div>
+    <section class="panel">
+      <h2>7 · Poster furniture</h2>
+      <label class="check"><input id="quoteToggle" type="checkbox" checked> Press quote bar</label>
+      <label class="check"><input id="taglineToggle" type="checkbox" checked> Tagline ribbon</label>
+      <label class="check"><input id="sealToggle" type="checkbox" checked> Gold seal</label>
+      <label class="check"><input id="barcodeToggle" type="checkbox" checked> Barcode</label>
+      <label class="check"><input id="creditsToggle" type="checkbox" checked> Credits line</label>
     </section>
 
-    <section class="card">
-      <h2>Caption</h2>
-      <label class="field">Title
-        <input id="title-input" type="text" value="SUNSET RUN" maxlength="24" autocomplete="off">
-      </label>
-      <label class="field">Subtitle
-        <input id="subtitle-input" type="text" value="a night in neon" maxlength="40" autocomplete="off">
-      </label>
-      <label class="field">Title colour
-        <select id="title-color"></select>
-      </label>
-      <label class="field">Badge text
-        <input id="badge-input" type="text" value="NEW RELEASE" maxlength="16" autocomplete="off">
-      </label>
-    </section>
-
-    <section class="card">
-      <h2>Finish</h2>
-      <label class="check"><input id="toggle-stars" type="checkbox" checked> Heat-meter stars</label>
-      <label class="check"><input id="toggle-badge" type="checkbox" checked> Badge ribbon</label>
-      <label class="check"><input id="toggle-grain" type="checkbox" checked> Film grain</label>
-    </section>
+    <p class="foot">Original art, original lettering. No Rockstar Games logo, artwork or fonts. Fonts: Anton &amp; Pacifico (SIL Open Font License).</p>
   </aside>
 
-  <section class="stage">
-    <div class="canvas-wrap">
-      <canvas id="preview" width="1080" height="1350"></canvas>
+  <section id="stageWrap">
+    <div id="canvasFrame">
+      <canvas id="preview" width="960" height="540"></canvas>
     </div>
-    <div class="panel-bar">
-      <span id="panel-label" class="panel-label">Panel 1</span>
-      <label class="zoom-label">Zoom
-        <input id="zoom-range" type="range" min="1" max="3" step="0.05" value="1">
-        <span id="zoom-value">100%</span>
-      </label>
-      <button id="fill-all" type="button">Fill all panels</button>
-      <button id="reset-crop" type="button">Reset crop</button>
-      <span class="hint">Click a panel to select it · drag to reposition · scroll to zoom</span>
-    </div>
+    <p id="stageHint">Click a panel to select it · drag inside a panel to move its focus point · Ctrl+Z undoes</p>
   </section>
 </main>
 
-<footer class="foot">
-  <span>Sunset Press — an original cover maker. No Rockstar Games logo, artwork or fonts. Fonts: Anton &amp; Pacifico (SIL Open Font License).</span>
-</footer>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

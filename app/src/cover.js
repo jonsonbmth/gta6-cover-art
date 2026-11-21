@@ -1,355 +1,481 @@
-// The cover renderer: draws the whole poster onto a 2D canvas — photo
-// panels with the colour grade, the bold title lettering, the heat-meter
-// stars, the badge ribbon, grain and vignette. One code path renders both
-// the editor's live preview and the exported PNG, so what you see is what
-// you share.
+// Vice Coast Press — the cover render engine.
+// Draws the whole poster (photo panels, striped title, script subtitle,
+// quote bar, role tabs, tagline ribbon, seal, barcode, credits, grain)
+// onto any canvas at any size. Preview and export share this code path.
+import { layoutById, panelRects } from './layouts.js';
+import { gradeById, panelFilterById } from './grades.js';
 
-import { getLayout } from './layouts.js';
-import { getGrade, getTitleColor } from './grades.js';
+export const SIZES = {
+  square: { id: 'square', name: 'Square 1080 × 1080', w: 1080, h: 1080 },
+  portrait: { id: 'portrait', name: 'Portrait 1080 × 1350', w: 1080, h: 1350 },
+  wide: { id: 'wide', name: 'Wide 1920 × 1080', w: 1920, h: 1080 },
+};
 
-// Small deterministic PRNG so the film grain looks the same every render.
+export function sizeById(id) {
+  return SIZES[id] || SIZES.wide;
+}
+
+function hashString(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
 function mulberry32(seed) {
+  let a = seed >>> 0;
   return function () {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
 
-let grainTile = null;
-function getGrainTile() {
-  if (grainTile) return grainTile;
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
-  const g = c.getContext('2d');
-  const img = g.createImageData(128, 128);
-  const rand = mulberry32(20261119);
-  for (let i = 0; i < img.data.length; i += 4) {
-    const v = Math.floor(rand() * 255);
-    img.data[i] = v;
-    img.data[i + 1] = v;
-    img.data[i + 2] = v;
-    img.data[i + 3] = 255;
-  }
-  g.putImageData(img, 0, 0);
-  grainTile = c;
-  return c;
-}
-
-function drawStarPath(ctx, cx, cy, r) {
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const rad = i % 2 === 0 ? r : r * 0.45;
-    const a = -Math.PI / 2 + (i * Math.PI) / 5;
-    const x = cx + Math.cos(a) * rad;
-    const y = cy + Math.sin(a) * rad;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
-}
-
-// Cover-fit draw of one photo into a panel rect, with the panel's zoom and
-// pan applied. Pan is -1..1 across the spare room the zoom creates.
-function drawPhotoInto(ctx, img, rect, crop) {
-  const zoom = crop?.zoom ?? 1;
-  const panX = crop?.panX ?? 0;
-  const panY = crop?.panY ?? 0;
-  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight);
-  const s = base * zoom;
-  const dw = img.naturalWidth * s;
-  const dh = img.naturalHeight * s;
-  const dx = rect.x + (rect.w - dw) / 2 + (panX * Math.max(0, dw - rect.w)) / 2;
-  const dy = rect.y + (rect.h - dh) / 2 + (panY * Math.max(0, dh - rect.h)) / 2;
-  ctx.drawImage(img, dx, dy, dw, dh);
-}
-
-function drawPanelVignette(ctx, rect, strength) {
-  const cx = rect.x + rect.w / 2;
-  const cy = rect.y + rect.h / 2;
-  const r = Math.hypot(rect.w, rect.h) / 2;
-  const g = ctx.createRadialGradient(cx, cy, r * 0.45, cx, cy, r);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(1, `rgba(0,0,0,${strength})`);
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-}
-
-function drawGradeOverlay(ctx, rect, grade) {
-  if (!grade.overlay) return;
-  const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-  for (const [at, color] of grade.overlay.stops) g.addColorStop(at, color);
-  ctx.save();
-  ctx.globalCompositeOperation = grade.overlay.blend;
-  ctx.globalAlpha = grade.overlay.alpha;
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.restore();
-}
-
-function drawOnePanel(ctx, img, rect, crop, grade, scale, opts) {
-  ctx.save();
-  if (opts.rot) {
-    ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
-    ctx.rotate(opts.rot);
-    ctx.translate(-(rect.x + rect.w / 2), -(rect.y + rect.h / 2));
-  }
-  if (opts.frame) {
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = 18 * scale;
-    ctx.shadowOffsetY = 8 * scale;
-    ctx.fillStyle = '#fdfbf7';
-    const f = 10 * scale;
-    ctx.fillRect(rect.x - f, rect.y - f, rect.w + f * 2, rect.h + f * 2);
-    ctx.shadowColor = 'transparent';
-  }
-  ctx.beginPath();
-  ctx.rect(rect.x, rect.y, rect.w, rect.h);
-  ctx.clip();
-  if (img) {
-    ctx.filter = grade.filter;
-    drawPhotoInto(ctx, img, rect, crop);
-    ctx.filter = 'none';
-  } else {
-    const g = ctx.createLinearGradient(rect.x, rect.y, rect.x, rect.y + rect.h);
-    g.addColorStop(0, '#2b1a3d');
-    g.addColorStop(1, '#120e1c');
-    ctx.fillStyle = g;
-    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  }
-  drawGradeOverlay(ctx, rect, grade);
-  drawPanelVignette(ctx, rect, grade.vignette * 0.6);
-  ctx.restore();
-}
-
-// Shrink the display font until the title fits the zone width.
-function fitTitleFont(ctx, text, maxWidth, startSize) {
-  let size = startSize;
-  ctx.font = `${size}px Anton, 'Arial Black', sans-serif`;
+function fitFontSize(ctx, text, family, weight, start, maxWidth) {
+  let size = start;
+  ctx.font = `${weight} ${size}px ${family}`;
   while (size > 12 && ctx.measureText(text).width > maxWidth) {
     size -= 2;
-    ctx.font = `${size}px Anton, 'Arial Black', sans-serif`;
+    ctx.font = `${weight} ${size}px ${family}`;
   }
   return size;
 }
 
-function drawTitleBlock(ctx, zone, state, scale) {
-  const grade = getGrade(state.gradeId);
-  const color = getTitleColor(state.titleColorId);
-  const pad = 0.045 * state.size.w;
-
-  if (zone.band) {
-    const bg = ctx.createLinearGradient(0, zone.y, 0, zone.y + zone.h);
-    bg.addColorStop(0, '#171020');
-    bg.addColorStop(1, '#0a0812');
-    ctx.fillStyle = bg;
-    ctx.fillRect(zone.x, zone.y, zone.w, zone.h);
-    // Sunset accent rule along the top of the band.
-    const rule = ctx.createLinearGradient(zone.x, 0, zone.x + zone.w, 0);
-    rule.addColorStop(0, grade.swatch[0]);
-    rule.addColorStop(1, grade.swatch[1]);
-    ctx.fillStyle = rule;
-    ctx.fillRect(zone.x, zone.y, zone.w, Math.max(2, 3 * scale));
-  } else if (zone.scrim) {
-    const scrim = ctx.createLinearGradient(0, zone.y - zone.h * 0.5, 0, zone.y + zone.h);
-    scrim.addColorStop(0, 'rgba(0,0,0,0)');
-    scrim.addColorStop(1, 'rgba(0,0,0,0.78)');
-    ctx.fillStyle = scrim;
-    ctx.fillRect(zone.x, zone.y - zone.h * 0.5, zone.w, zone.h * 1.5);
-  }
-
-  const title = (state.title || 'SUNSET RUN').toUpperCase();
-  const titleSize = fitTitleFont(ctx, title, zone.w - pad * 2, zone.h * 0.52);
-  const titleY = zone.y + zone.h * 0.52 + titleSize * 0.32;
-
-  // Big condensed title with a sunset gradient fill and a hard outline.
-  const tg = ctx.createLinearGradient(0, titleY - titleSize, 0, titleY + titleSize * 0.15);
-  for (const [at, c] of color.stops) tg.addColorStop(at, c);
+function drawStar(ctx, x, y, r, color) {
   ctx.save();
-  ctx.font = `${titleSize}px Anton, 'Arial Black', sans-serif`;
-  try {
-    ctx.letterSpacing = `${Math.round(2 * scale)}px`;
-  } catch (_) {
-    /* older browsers ignore letterSpacing */
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? r : r * 0.45;
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const px = x + Math.cos(a) * rad, py = y + Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   }
-  ctx.textBaseline = 'alphabetic';
-  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-  ctx.shadowBlur = 10 * scale;
-  ctx.shadowOffsetY = 4 * scale;
-  ctx.lineWidth = Math.max(2, titleSize / 16);
-  ctx.strokeStyle = '#12060f';
-  ctx.strokeText(title, zone.x + pad, titleY);
-  ctx.fillStyle = tg;
-  ctx.fillText(title, zone.x + pad, titleY);
-  ctx.restore();
-
-  // Neon script subtitle under the title.
-  const sub = state.subtitle || '';
-  if (sub) {
-    const subSize = Math.max(14, zone.h * 0.2);
-    ctx.save();
-    ctx.font = `${subSize}px Pacifico, cursive`;
-    ctx.fillStyle = '#ff7ab8';
-    ctx.shadowColor = '#ff2d78';
-    ctx.shadowBlur = 16 * scale;
-    ctx.fillText(sub, zone.x + pad + 4 * scale, titleY + subSize * 1.15);
-    ctx.restore();
-  }
-
-  // Heat-meter stars, tucked into the top-right corner above the title line
-  // so a long title never runs underneath them.
-  if (state.showStars) {
-    const starR = Math.max(7, zone.h * 0.1);
-    const gap = starR * 2.4;
-    const total = gap * 4 + starR * 2;
-    let sx = zone.x + zone.w - pad - total + starR;
-    const sy = zone.y + zone.h * 0.15;
-    ctx.save();
-    ctx.fillStyle = '#ffd166';
-    ctx.shadowColor = 'rgba(255,180,0,0.8)';
-    ctx.shadowBlur = 8 * scale;
-    for (let i = 0; i < (state.starCount ?? 5); i++) {
-      drawStarPath(ctx, sx, sy, starR);
-      ctx.fill();
-      sx += gap;
-    }
-    ctx.restore();
-  }
-
-  // Badge ribbon sticker, rotated, overlapping the band's top-left corner —
-  // the stars own the top-right, so the badge lives on the other side. The
-  // box sizes itself to the text, so a long badge never overflows it, and
-  // the top is clamped so the rotation never clips it off the canvas.
-  if (state.showBadge) {
-    const bh = Math.max(20, zone.h * 0.24);
-    const text = state.badgeText || 'NEW RELEASE';
-    let fontSize = Math.round(bh * 0.42);
-    ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-    const maxText = zone.w * 0.3;
-    while (fontSize > 10 && ctx.measureText(text).width > maxText) {
-      fontSize -= 1;
-      ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-    }
-    const bw = ctx.measureText(text).width + bh * 0.9;
-    const bx = zone.x + pad * 0.5;
-    const by = Math.max(zone.y - bh * 0.45, 8 * scale);
-    ctx.save();
-    ctx.translate(bx + bw / 2, by + bh / 2);
-    ctx.rotate(-0.06);
-    ctx.fillStyle = '#ff2d78';
-    ctx.shadowColor = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur = 8 * scale;
-    ctx.shadowOffsetY = 3 * scale;
-    ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
-    ctx.shadowColor = 'transparent';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `bold ${fontSize}px Arial, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 0, 1);
-    ctx.restore();
-  }
-
-  // Tiny footer line: the app's signature, bottom-right of the band.
-  if (zone.band) {
-    ctx.save();
-    ctx.font = `${Math.max(9, Math.round(11 * scale))}px Arial, sans-serif`;
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText('SUNSET PRESS · MADE OFFLINE', zone.x + zone.w - pad, zone.y + zone.h - 6 * scale);
-    ctx.restore();
-  }
-}
-
-function applyGrain(ctx, w, h, amount) {
-  const tile = getGrainTile();
-  const pattern = ctx.createPattern(tile, 'repeat');
-  ctx.save();
-  ctx.globalCompositeOperation = 'overlay';
-  ctx.globalAlpha = amount;
-  ctx.fillStyle = pattern;
-  ctx.fillRect(0, 0, w, h);
+  ctx.closePath();
+  ctx.fill();
   ctx.restore();
 }
 
-function applyFullVignette(ctx, w, h, strength) {
-  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.42, w / 2, h / 2, Math.hypot(w, h) / 2);
-  g.addColorStop(0, 'rgba(0,0,0,0)');
-  g.addColorStop(1, `rgba(0,0,0,${strength})`);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
+function drawPalm(ctx, x, y, s, color) {
+  ctx.save();
+  ctx.strokeStyle = color; ctx.fillStyle = color;
+  ctx.lineWidth = Math.max(1.5, s * 0.06);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(x + s * 0.08, y - s * 0.55, x + s * 0.22, y - s * 0.8);
+  ctx.stroke();
+  const tx = x + s * 0.22, ty = y - s * 0.8;
+  for (let i = 0; i < 6; i++) {
+    const a = Math.PI * (0.08 + i * 0.17);
+    ctx.beginPath();
+    ctx.moveTo(tx, ty);
+    ctx.quadraticCurveTo(
+      tx + Math.cos(a) * s * 0.34, ty - Math.sin(a) * s * 0.34,
+      tx + Math.cos(a + 0.35) * s * 0.52, ty - Math.sin(a + 0.35) * s * 0.52 + s * 0.16,
+    );
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
-// Draw the whole cover onto a canvas sized to state.size. The same function
-// renders the editor preview and the exported PNG.
-export function renderCover(canvas, state) {
-  const { w, h } = state.size;
-  if (canvas.width !== w || canvas.height !== h) {
-    canvas.width = w;
-    canvas.height = h;
+function drawPhotoPanel(ctx, rect, img, panel, grade, gap) {
+  const { x, y, w, h, tilt } = rect;
+  ctx.save();
+  if (tilt) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((tilt * Math.PI) / 180);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
   }
-  const ctx = canvas.getContext('2d');
-  const scale = w / 1080;
-  const layout = getLayout(state.layoutId);
-  const grade = getGrade(state.gradeId);
-  const gutter = 6 * scale;
-
-  // Backdrop: near-black, or a sunset wash for the tilted layout.
-  if (state.layoutId === 'tilted') {
-    const bg = ctx.createLinearGradient(0, 0, w, h);
-    bg.addColorStop(0, '#2b1055');
-    bg.addColorStop(0.5, '#a4133c');
-    bg.addColorStop(1, '#ff7b00');
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, w, h);
+  ctx.beginPath();
+  ctx.rect(x, y, w, h);
+  ctx.clip();
+  if (img && img.naturalWidth > 0) {
+    const zoom = panel.zoom || 1;
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight) * zoom;
+    const dw = img.naturalWidth * scale, dh = img.naturalHeight * scale;
+    const cx = panel.cx ?? 0.5, cy = panel.cy ?? 0.35;
+    let dx = x + w / 2 - cx * dw;
+    let dy = y + h / 2 - cy * dh;
+    dx = Math.min(x, Math.max(x + w - dw, dx));
+    dy = Math.min(y, Math.max(y + h - dh, dy));
+    const pf = panelFilterById(panel.filter);
+    ctx.filter = pf.id === 'none' ? grade.photoFilter : `${grade.photoFilter} ${pf.filter}`;
+    ctx.drawImage(img, dx, dy, dw, dh);
+    ctx.filter = 'none';
   } else {
-    ctx.fillStyle = '#0a0812';
-    ctx.fillRect(0, 0, w, h);
+    const g = ctx.createLinearGradient(x, y, x, y + h);
+    g.addColorStop(0, '#3b0f4f'); g.addColorStop(0.55, '#c81d5e'); g.addColorStop(1, '#ff9e00');
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(255,240,200,0.85)';
+    ctx.beginPath(); ctx.arc(x + w * 0.5, y + h * 0.36, Math.min(w, h) * 0.16, 0, Math.PI * 2); ctx.fill();
+    drawPalm(ctx, x + w * 0.2, y + h * 0.92, Math.min(w, h) * 0.34, 'rgba(20,4,30,0.9)');
+    drawPalm(ctx, x + w * 0.62, y + h * 0.95, Math.min(w, h) * 0.42, 'rgba(20,4,30,0.9)');
   }
+  ctx.restore();
+  // Frame.
+  ctx.save();
+  if (tilt) {
+    ctx.translate(x + w / 2, y + h / 2);
+    ctx.rotate((tilt * Math.PI) / 180);
+    ctx.translate(-(x + w / 2), -(y + h / 2));
+  }
+  ctx.strokeStyle = grade.frame;
+  ctx.lineWidth = Math.max(1.5, gap * 0.45);
+  ctx.strokeRect(x, y, w, h);
+  ctx.restore();
+}
 
-  const panels = layout.panels(w, h);
-  panels.forEach((rect, i) => {
-    const crop = state.panels[i] ?? { photo: i % Math.max(1, state.photos.length), zoom: 1, panX: 0, panY: 0 };
-    const img = state.photos[crop.photo];
-    const inset = {
-      x: rect.x + gutter / 2,
-      y: rect.y + gutter / 2,
-      w: rect.w - gutter,
-      h: rect.h - gutter,
-    };
-    drawOnePanel(ctx, img, inset, crop, grade, scale, {
-      rot: rect.rot ?? 0,
-      frame: state.layoutId === 'tilted',
-    });
+function drawRoleTab(ctx, rect, panel, grade, unit) {
+  if (!panel.role) return;
+  const padX = unit * 0.55, slant = unit * 0.45;
+  ctx.save();
+  ctx.font = `700 ${Math.round(unit * 0.62)}px Anton, 'Arial Narrow', sans-serif`;
+  const tw = ctx.measureText(panel.role).width;
+  const tabW = Math.min(rect.w - unit * 0.4, tw + padX * 2 + slant);
+  const tabH = unit * 1.05;
+  const tx = rect.x + unit * 0.28, ty = rect.y + rect.h - tabH - unit * 0.28;
+  if (rect.tilt) {
+    ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+    ctx.rotate((rect.tilt * Math.PI) / 180);
+    ctx.translate(-(rect.x + rect.w / 2), -(rect.y + rect.h / 2));
+  }
+  ctx.beginPath();
+  ctx.moveTo(tx + slant, ty);
+  ctx.lineTo(tx + tabW, ty);
+  ctx.lineTo(tx + tabW - slant, ty + tabH);
+  ctx.lineTo(tx, ty + tabH);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(10,4,18,0.92)';
+  ctx.fill();
+  ctx.fillStyle = grade.tabAccent;
+  ctx.beginPath();
+  ctx.moveTo(tx + slant, ty);
+  ctx.lineTo(tx + slant + unit * 0.16, ty);
+  ctx.lineTo(tx + unit * 0.16, ty + tabH);
+  ctx.lineTo(tx, ty + tabH);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(panel.role, tx + padX + slant * 0.5, ty + tabH / 2 + unit * 0.03);
+  if (panel.subline && rect.w > unit * 7) {
+    ctx.font = `600 ${Math.round(unit * 0.42)}px 'Helvetica Neue', Arial, sans-serif`;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillText(panel.subline, tx + unit * 0.15, ty - unit * 0.42);
+  }
+  ctx.restore();
+}
+
+// The striped sunset title: an offscreen mask filled with horizontal bands.
+function drawStripedTitle(ctx, text, cx, cy, size, bands, outline, tiltDeg) {
+  const pad = size * 0.5;
+  ctx.save();
+  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const off = document.createElement('canvas');
+  off.width = Math.ceil(tw + pad * 2);
+  off.height = Math.ceil(size * 1.5 + pad * 2);
+  const o = off.getContext('2d');
+  o.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  o.textBaseline = 'middle';
+  o.fillStyle = '#ffffff';
+  o.fillText(text, pad, off.height / 2 + size * 0.04);
+  o.globalCompositeOperation = 'source-in';
+  const n = bands.length;
+  for (let i = 0; i < n; i++) {
+    o.fillStyle = bands[i];
+    o.fillRect(0, (off.height / n) * i, off.width, off.height / n + 1);
+  }
+  ctx.translate(cx, cy);
+  ctx.rotate((tiltDeg * Math.PI) / 180);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  // Drop shadow.
+  ctx.fillStyle = 'rgba(10,2,20,0.55)';
+  ctx.fillText(text, size * 0.045, size * 0.075);
+  // Thick outline.
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = size * 0.16;
+  ctx.strokeText(text, 0, 0);
+  ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+  ctx.lineWidth = size * 0.045;
+  ctx.strokeText(text, 0, 0);
+  // Striped fill.
+  ctx.drawImage(off, -off.width / 2, -off.height / 2);
+  // Sparkle.
+  ctx.fillStyle = '#ffffff';
+  drawStar(ctx, -tw / 2 + size * 0.08, -size * 0.42, size * 0.09, '#ffffff');
+  ctx.restore();
+}
+
+function drawSeal(ctx, x, y, r, label, grade) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  const spikes = 14;
+  for (let i = 0; i < spikes * 2; i++) {
+    const rad = i % 2 === 0 ? r : r * 0.82;
+    const a = (i * Math.PI) / spikes - Math.PI / 2;
+    const px = Math.cos(a) * rad, py = Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r);
+  g.addColorStop(0, '#ffe97a'); g.addColorStop(0.6, '#ffb703'); g.addColorStop(1, '#c77d02');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = '#7a4d00';
+  ctx.lineWidth = Math.max(1, r * 0.04);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.68, 0, Math.PI * 2);
+  ctx.strokeStyle = 'rgba(122,77,0,0.8)';
+  ctx.lineWidth = Math.max(1, r * 0.03);
+  ctx.stroke();
+  ctx.fillStyle = '#3d2400';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const words = label.split(' ');
+  const fs = r * (words.length > 2 ? 0.26 : 0.3);
+  ctx.font = `700 ${fs}px Anton, 'Arial Narrow', sans-serif`;
+  if (words.length <= 2) {
+    ctx.fillText(label, 0, -r * 0.08);
+  } else {
+    ctx.fillText(words.slice(0, -1).join(' '), 0, -r * 0.2);
+    ctx.fillText(words[words.length - 1], 0, r * 0.14);
+  }
+  drawStar(ctx, -r * 0.3, r * 0.42, r * 0.12, '#3d2400');
+  drawStar(ctx, 0, r * 0.42, r * 0.12, '#3d2400');
+  drawStar(ctx, r * 0.3, r * 0.42, r * 0.12, '#3d2400');
+  ctx.restore();
+}
+
+function drawBarcode(ctx, x, y, w, h, seedText) {
+  const rnd = mulberry32(hashString(seedText || 'vice'));
+  ctx.save();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = '#111111';
+  let bx = x + w * 0.06;
+  while (bx < x + w * 0.94) {
+    const bw = (1 + Math.floor(rnd() * 3)) * Math.max(1, w * 0.012);
+    if (rnd() > 0.35) ctx.fillRect(bx, y + h * 0.12, bw, h * 0.62);
+    bx += bw + Math.max(1, w * 0.012);
+  }
+  ctx.font = `700 ${Math.round(h * 0.16)}px 'Courier New', monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const digits = String(hashString(seedText || 'vice')).padStart(10, '0').slice(0, 10);
+  ctx.fillText(digits.replace(/(\d{5})(\d{5})/, '$1 $2'), x + w / 2, y + h * 0.88);
+  ctx.restore();
+}
+
+function drawGrain(ctx, W, H, seed) {
+  const rnd = mulberry32(seed);
+  ctx.save();
+  const n = Math.floor((W * H) / 900);
+  for (let i = 0; i < n; i++) {
+    const x = rnd() * W, y = rnd() * H;
+    ctx.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(x, y, 1.4, 1.4);
+  }
+  ctx.restore();
+}
+
+export function renderCover(canvas, state, images) {
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const layout = layoutById(state.layout);
+  const grade = gradeById(state.grade);
+  const unit = Math.min(W, H) / 34;
+  const gap = Math.max(3, Math.min(W, H) * 0.008);
+
+  // Backdrop.
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#160a1e'); bg.addColorStop(0.5, '#241031'); bg.addColorStop(1, '#12081a');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const topH = H * 0.062;
+  const botH = H * 0.075;
+  const stage = { x: W * 0.014, y: topH + H * 0.006, w: W * 0.972, h: H - topH - botH - H * 0.012 };
+  const rects = panelRects(layout, stage, gap);
+
+  // Photo panels.
+  rects.forEach((rect, i) => {
+    const panel = state.panels[i] || {};
+    drawPhotoPanel(ctx, rect, images.get(panel.photo || ''), panel, grade, gap);
   });
 
-  drawTitleBlock(ctx, layout.title(w, h), state, scale);
+  // Grade tint over the stage.
+  ctx.save();
+  ctx.globalCompositeOperation = grade.overlayBlend;
+  const og = ctx.createLinearGradient(stage.x, stage.y, stage.x, stage.y + stage.h);
+  og.addColorStop(0, grade.overlay[0]);
+  og.addColorStop(1, grade.overlay[1]);
+  ctx.fillStyle = og;
+  ctx.fillRect(stage.x, stage.y, stage.w, stage.h);
+  ctx.restore();
 
-  if (state.layoutId === 'fullbleed' || state.layoutId === 'tilted') {
-    applyFullVignette(ctx, w, h, grade.vignette * 0.7);
+  // Role tabs.
+  rects.forEach((rect, i) => {
+    drawRoleTab(ctx, rect, state.panels[i] || {}, grade, unit);
+  });
+
+  // Top quote bar.
+  ctx.save();
+  ctx.fillStyle = 'rgba(12,4,20,0.92)';
+  ctx.fillRect(0, 0, W, topH);
+  if (state.showQuote !== false && state.quote) {
+    const starR = topH * 0.22;
+    let sx = W * 0.02;
+    for (let i = 0; i < 5; i++) {
+      drawStar(ctx, sx + starR, topH / 2, starR, '#ffd319');
+      sx += starR * 2.4;
+    }
+    const quote = `\u201C${state.quote}\u201D`;
+    const qSize = fitFontSize(ctx, quote, 'Anton, \'Arial Narrow\', sans-serif', 400, topH * 0.44, W * 0.58);
+    ctx.font = `${qSize}px Anton, 'Arial Narrow', sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(quote, W * 0.5, topH / 2 + topH * 0.03);
+    if (state.quoteSource) {
+      ctx.font = `700 ${Math.round(topH * 0.26)}px 'Helvetica Neue', Arial, sans-serif`;
+      ctx.fillStyle = grade.accent;
+      const qw = ctx.measureText(quote).width;
+      ctx.textAlign = 'left';
+      ctx.fillText(`\u2014 ${state.quoteSource}`, W * 0.5 + qw / 2 + W * 0.012, topH / 2 + topH * 0.03);
+    }
   }
-  if (state.grain) applyGrain(ctx, w, h, grade.grain);
+  if (state.volume) {
+    ctx.font = `700 ${Math.round(topH * 0.34)}px Anton, 'Arial Narrow', sans-serif`;
+    const vw = ctx.measureText(state.volume).width + topH * 0.8;
+    ctx.fillStyle = grade.accent;
+    ctx.beginPath();
+    const vx = W - vw - W * 0.014, vy = topH * 0.16;
+    ctx.moveTo(vx + topH * 0.2, vy);
+    ctx.lineTo(vx + vw, vy);
+    ctx.lineTo(vx + vw - topH * 0.2, vy + topH * 0.68);
+    ctx.lineTo(vx, vy + topH * 0.68);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#160a1e';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(state.volume, vx + vw / 2, vy + topH * 0.36);
+  }
+  ctx.restore();
+
+  // Title block.
+  const title = (state.title || 'VICE CITY').toUpperCase();
+  const titleY = H * layout.titleY;
+  const titleSize = fitFontSize(
+    ctx, title, 'Anton, \'Arial Narrow\', sans-serif', 400,
+    H * 0.155 * layout.titleScale, W * 0.94,
+  );
+  drawStripedTitle(ctx, title, W / 2, titleY, titleSize, grade.titleBands, grade.titleOutline, -1.5);
+
+  // Script subtitle.
+  if (state.subtitle) {
+    ctx.save();
+    ctx.translate(W / 2 + W * 0.06, titleY + titleSize * 0.72);
+    ctx.rotate((-3 * Math.PI) / 180);
+    const subSize = fitFontSize(ctx, state.subtitle, 'Pacifico, cursive', 400, titleSize * 0.42, W * 0.6);
+    ctx.font = `${subSize}px Pacifico, cursive`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = grade.subtitle;
+    ctx.shadowBlur = subSize * 0.35;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1.5, subSize * 0.07);
+    ctx.strokeText(state.subtitle, 0, 0);
+    ctx.fillStyle = grade.subtitle;
+    ctx.fillText(state.subtitle, 0, 0);
+    ctx.restore();
+  }
+
+  // Tagline ribbon.
+  if (state.showTagline !== false && state.tagline) {
+    ctx.save();
+    const tagY = stage.y + stage.h - H * 0.012;
+    const fs = fitFontSize(ctx, state.tagline, 'Anton, \'Arial Narrow\', sans-serif', 400, H * 0.026, W * 0.72);
+    ctx.font = `${fs}px Anton, 'Arial Narrow', sans-serif`;
+    const tw = ctx.measureText(state.tagline).width;
+    const bw = tw + unit * 3.2, bh = fs * 1.9;
+    const bx = (W - bw) / 2, by = tagY - bh / 2;
+    ctx.beginPath();
+    ctx.moveTo(bx + bh * 0.5, by);
+    ctx.lineTo(bx + bw - bh * 0.5, by);
+    ctx.lineTo(bx + bw, by + bh / 2);
+    ctx.lineTo(bx + bw - bh * 0.5, by + bh);
+    ctx.lineTo(bx + bh * 0.5, by + bh);
+    ctx.lineTo(bx, by + bh / 2);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(8,2,14,0.94)';
+    ctx.fill();
+    ctx.strokeStyle = grade.accent;
+    ctx.lineWidth = Math.max(1, unit * 0.06);
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(state.tagline, W / 2, by + bh / 2 + fs * 0.04);
+    drawPalm(ctx, bx - unit * 1.6, by + bh * 0.9, unit * 1.5, 'rgba(255,220,150,0.9)');
+    drawPalm(ctx, bx + bw + unit * 0.4, by + bh * 0.9, unit * 1.5, 'rgba(255,220,150,0.9)');
+    ctx.restore();
+  }
+
+  // Gold seal.
+  if (state.showSeal !== false && state.seal) {
+    drawSeal(ctx, W * 0.935, stage.y + stage.h * 0.82, Math.min(W, H) * 0.052, state.seal, grade);
+  }
+
+  // Bottom credits strip.
+  ctx.save();
+  const cy0 = H - botH;
+  ctx.fillStyle = 'rgba(10,3,16,0.96)';
+  ctx.fillRect(0, cy0, W, botH);
+  ctx.fillStyle = grade.accent;
+  ctx.fillRect(0, cy0, W, Math.max(1.5, H * 0.002));
+  ctx.fillStyle = '#ffb3c8';
+  ctx.font = `700 ${Math.round(botH * 0.3)}px Anton, 'Arial Narrow', sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('COMING SOON', W * 0.016, cy0 + botH * 0.5);
+  if (state.showCredits !== false && state.credits) {
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    const cSize = fitFontSize(ctx, state.credits, '\'Helvetica Neue\', Arial, sans-serif', 600, botH * 0.24, W * 0.62);
+    ctx.font = `600 ${cSize}px 'Helvetica Neue', Arial, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(state.credits, W * 0.5, cy0 + botH * 0.5);
+  }
+  if (state.showBarcode !== false) {
+    drawBarcode(ctx, W * 0.93, cy0 + botH * 0.14, W * 0.055, botH * 0.72, title);
+  }
+  ctx.restore();
+
+  // Vignette + grain.
+  ctx.save();
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.42, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(8,0,14,0.30)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+  drawGrain(ctx, W, H, hashString(title + state.grade + state.layout));
 }
 
-// Render the cover offscreen at export size and return a PNG blob.
-export function exportCoverPNG(state) {
+export function renderCoverToCanvas(w, h, state, images) {
   const canvas = document.createElement('canvas');
-  renderCover(canvas, state);
-  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
-}
-
-// Which panel, if any, holds the point (px, py) in canvas pixels.
-export function panelAt(state, px, py) {
-  const { w, h } = state.size;
-  const layout = getLayout(state.layoutId);
-  const panels = layout.panels(w, h);
-  for (let i = panels.length - 1; i >= 0; i--) {
-    const r = panels[i];
-    if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return i;
-  }
-  return -1;
+  canvas.width = w;
+  canvas.height = h;
+  renderCover(canvas, state, images);
+  return canvas;
 }

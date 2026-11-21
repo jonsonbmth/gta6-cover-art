@@ -1,105 +1,106 @@
-// Panel layouts for the cover: each layout is a function of the canvas size
-// that returns the photo panels (fractions of width/height, resolved by the
-// renderer) and the title zone where the lettering goes. The classic GTA
-// cover look is a grid of panels with a bold title band; every layout keeps
-// the title clear of the photos so the lettering always reads.
-
+// Vice Coast Press — cover layouts.
+// Every layout is a set of photo panels placed inside the poster stage (the
+// area between the top quote bar and the bottom credits strip). Panel rects
+// are fractions of the stage, so one layout works at every export size.
+// tilt is a small rotation in degrees for the collage feel.
 export const LAYOUTS = [
   {
-    id: 'classic',
-    name: 'Cover Grid',
-    blurb: 'The classic multi-panel poster: one hero, five scenes.',
-    // Repeats sit far apart: hero and bottom-right share one photo, the
-    // right column and bottom-middle share another.
-    defaultPhotos: [0, 1, 2, 3, 1, 0],
-    panels: (W, H) => [
-      { x: 0, y: 0, w: 0.58 * W, h: 0.56 * H },
-      { x: 0.58 * W, y: 0, w: 0.42 * W, h: 0.28 * H },
-      { x: 0.58 * W, y: 0.28 * H, w: 0.42 * W, h: 0.28 * H },
-      { x: 0, y: 0.56 * H, w: 0.29 * W, h: 0.22 * H },
-      { x: 0.29 * W, y: 0.56 * H, w: 0.29 * W, h: 0.22 * H },
-      { x: 0.58 * W, y: 0.56 * H, w: 0.42 * W, h: 0.22 * H },
+    id: 'grid', name: 'Grid 6', panels: 6, titleY: 0.54, titleScale: 1.0,
+    rects: [
+      [0.00, 0.00, 0.333, 0.50], [0.333, 0.00, 0.334, 0.50], [0.667, 0.00, 0.333, 0.50],
+      [0.00, 0.50, 0.333, 0.50], [0.333, 0.50, 0.334, 0.50], [0.667, 0.50, 0.333, 0.50],
     ],
-    title: (W, H) => ({ x: 0, y: 0.78 * H, w: W, h: 0.22 * H, band: true }),
   },
   {
-    id: 'hero3',
-    name: 'Hero + Three',
-    blurb: 'One big hero shot, three scenes underneath.',
-    defaultPhotos: [0, 1, 2, 3],
-    panels: (W, H) => [
-      { x: 0, y: 0, w: W, h: 0.6 * H },
-      { x: 0, y: 0.6 * H, w: (1 / 3) * W, h: 0.2 * H },
-      { x: (1 / 3) * W, y: 0.6 * H, w: (1 / 3) * W, h: 0.2 * H },
-      { x: (2 / 3) * W, y: 0.6 * H, w: (1 / 3) * W, h: 0.2 * H },
+    id: 'hero', name: 'Hero + 4', panels: 5, titleY: 0.56, titleScale: 1.05,
+    rects: [
+      [0.00, 0.00, 0.54, 1.00],
+      [0.54, 0.00, 0.23, 0.50], [0.77, 0.00, 0.23, 0.50],
+      [0.54, 0.50, 0.23, 0.50], [0.77, 0.50, 0.23, 0.50],
     ],
-    title: (W, H) => ({ x: 0, y: 0.8 * H, w: W, h: 0.2 * H, band: true }),
   },
   {
-    id: 'grid4',
-    name: 'Four Panel',
-    blurb: 'A clean 2 x 2 grid of scenes.',
-    defaultPhotos: [0, 1, 2, 3],
-    panels: (W, H) => [
-      { x: 0, y: 0, w: 0.5 * W, h: 0.39 * H },
-      { x: 0.5 * W, y: 0, w: 0.5 * W, h: 0.39 * H },
-      { x: 0, y: 0.39 * H, w: 0.5 * W, h: 0.39 * H },
-      { x: 0.5 * W, y: 0.39 * H, w: 0.5 * W, h: 0.39 * H },
+    id: 'split', name: 'Split Duo', panels: 2, titleY: 0.52, titleScale: 1.1,
+    rects: [
+      [0.00, 0.00, 0.50, 1.00], [0.50, 0.00, 0.50, 1.00],
     ],
-    title: (W, H) => ({ x: 0, y: 0.78 * H, w: W, h: 0.22 * H, band: true }),
   },
   {
-    id: 'grid6',
-    name: 'Six Panel',
-    blurb: 'Six scenes in a 3 x 2 grid.',
-    // Repeats sit on opposite diagonals, never side by side.
-    defaultPhotos: [0, 1, 2, 3, 1, 0],
-    panels: (W, H) => [
-      { x: 0, y: 0, w: (1 / 3) * W, h: 0.39 * H },
-      { x: (1 / 3) * W, y: 0, w: (1 / 3) * W, h: 0.39 * H },
-      { x: (2 / 3) * W, y: 0, w: (1 / 3) * W, h: 0.39 * H },
-      { x: 0, y: 0.39 * H, w: (1 / 3) * W, h: 0.39 * H },
-      { x: (1 / 3) * W, y: 0.39 * H, w: (1 / 3) * W, h: 0.39 * H },
-      { x: (2 / 3) * W, y: 0.39 * H, w: (1 / 3) * W, h: 0.39 * H },
+    id: 'strip', name: 'Strip', panels: 4, titleY: 0.60, titleScale: 1.0,
+    rects: [
+      [0.00, 0.00, 1.00, 0.55],
+      [0.00, 0.55, 0.333, 0.45], [0.333, 0.55, 0.334, 0.45], [0.667, 0.55, 0.333, 0.45],
     ],
-    title: (W, H) => ({ x: 0, y: 0.78 * H, w: W, h: 0.22 * H, band: true }),
   },
   {
-    id: 'fullbleed',
-    name: 'Full Bleed',
-    blurb: 'One photo edge to edge, title over a scrim.',
-    defaultPhotos: [0],
-    panels: (W, H) => [{ x: 0, y: 0, w: W, h: H }],
-    title: (W, H) => ({
-      x: 0.05 * W, y: 0.7 * H, w: 0.9 * W, h: 0.26 * H, band: false, scrim: true,
-    }),
+    id: 'collage', name: 'Collage 7', panels: 7, titleY: 0.58, titleScale: 0.98,
+    rects: [
+      [0.00, 0.00, 0.38, 1.00, -1.2],
+      [0.38, 0.00, 0.207, 0.32, 0.8], [0.587, 0.00, 0.207, 0.32, -0.6], [0.794, 0.00, 0.206, 0.32, 1.0],
+      [0.38, 0.32, 0.31, 0.34, -0.8], [0.69, 0.32, 0.31, 0.34, 0.7],
+      [0.38, 0.66, 0.62, 0.34, -0.5],
+    ],
   },
   {
-    id: 'tilted',
-    name: 'Snapshot Tilt',
-    blurb: 'Three tilted snapshots on a sunset backdrop.',
-    defaultPhotos: [0, 1, 2],
-    panels: (W, H) => [
-      { x: 0.05 * W, y: 0.24 * H, w: 0.42 * W, h: 0.52 * H, rot: -0.1 },
-      { x: 0.52 * W, y: 0.2 * H, w: 0.42 * W, h: 0.52 * H, rot: 0.07 },
-      { x: 0.28 * W, y: 0.62 * H, w: 0.44 * W, h: 0.3 * H, rot: -0.04 },
+    id: 'portrait', name: 'Portrait Trio', panels: 3, titleY: 0.55, titleScale: 1.05,
+    rects: [
+      [0.00, 0.00, 0.25, 1.00], [0.25, 0.00, 0.50, 1.00], [0.75, 0.00, 0.25, 1.00],
     ],
-    title: (W, H) => ({ x: 0, y: 0.02 * H, w: W, h: 0.18 * H, band: false }),
+  },
+  {
+    id: 'square', name: 'Square 4', panels: 4, titleY: 0.54, titleScale: 1.0,
+    rects: [
+      [0.00, 0.00, 0.50, 0.50], [0.50, 0.00, 0.50, 0.50],
+      [0.00, 0.50, 0.50, 0.50], [0.50, 0.50, 0.50, 0.50],
+    ],
+  },
+  {
+    id: 'story', name: 'Story Stack', panels: 3, titleY: 0.56, titleScale: 1.0,
+    rects: [
+      [0.00, 0.00, 1.00, 0.60],
+      [0.00, 0.60, 0.50, 0.40], [0.50, 0.60, 0.50, 0.40],
+    ],
+  },
+  {
+    id: 'triptych', name: 'Triptych', panels: 3, titleY: 0.52, titleScale: 1.1,
+    rects: [
+      [0.00, 0.00, 0.333, 1.00], [0.333, 0.00, 0.334, 1.00], [0.667, 0.00, 0.333, 1.00],
+    ],
+  },
+  {
+    id: 'duo', name: 'Duo Inset', panels: 2, titleY: 0.50, titleScale: 1.05,
+    rects: [
+      [0.00, 0.00, 1.00, 1.00],
+      [0.66, 0.62, 0.30, 0.34, 2.5],
+    ],
+  },
+  {
+    id: 'wide', name: 'Filmstrip 5', panels: 5, titleY: 0.54, titleScale: 1.0,
+    rects: [
+      [0.00, 0.00, 0.20, 1.00], [0.20, 0.00, 0.20, 1.00], [0.40, 0.00, 0.20, 1.00],
+      [0.60, 0.00, 0.20, 1.00], [0.80, 0.00, 0.20, 1.00],
+    ],
+  },
+  {
+    id: 'minimal', name: 'Minimal', panels: 1, titleY: 0.68, titleScale: 1.15,
+    rects: [
+      [0.00, 0.00, 1.00, 1.00],
+    ],
   },
 ];
 
-export function getLayout(id) {
-  return LAYOUTS.find((l) => l.id === id) ?? LAYOUTS[0];
+export function layoutById(id) {
+  return LAYOUTS.find((l) => l.id === id) || LAYOUTS[0];
 }
 
-// The export sizes: the common post sizes the bounty names, plus a story size.
-export const SIZES = [
-  { id: 'square', name: 'Square · 1080 × 1080', w: 1080, h: 1080 },
-  { id: 'portrait', name: 'Portrait · 1080 × 1350', w: 1080, h: 1350 },
-  { id: 'wide', name: 'Wide · 1920 × 1080', w: 1920, h: 1080 },
-  { id: 'story', name: 'Story · 1080 × 1920', w: 1080, h: 1920 },
-];
-
-export function getSize(id) {
-  return SIZES.find((s) => s.id === id) ?? SIZES[1];
+// Panel rects in pixels for a stage box {x, y, w, h}. The gap is split
+// between neighbours so panels never touch.
+export function panelRects(layout, stage, gap) {
+  return layout.rects.map(([fx, fy, fw, fh, tilt = 0]) => ({
+    x: stage.x + fx * stage.w + (fx > 0 ? gap / 2 : 0),
+    y: stage.y + fy * stage.h + (fy > 0 ? gap / 2 : 0),
+    w: fw * stage.w - (fx > 0 ? gap / 2 : 0) - (fx + fw < 1 ? gap / 2 : 0),
+    h: fh * stage.h - (fy > 0 ? gap / 2 : 0) - (fy + fh < 1 ? gap / 2 : 0),
+    tilt,
+  }));
 }
