@@ -2,7 +2,7 @@
 // The canvas preview and the exported PNG share the cover engine in cover.js.
 import { LAYOUTS, layoutById, panelRects } from './layouts.js';
 import { GRADES, gradeById, PANEL_FILTERS } from './grades.js';
-import { SIZES, sizeById, renderCover, renderCoverToCanvas } from './cover.js';
+import { SIZES, sizeById, renderCover, renderCoverToCanvas, coverGeometry } from './cover.js';
 
 export const SAMPLES = [
   { key: 'boulevard', label: 'Boulevard', file: 'samples/boulevard.jpg', role: 'THE DRIVER', subline: 'OCEAN DRIVE · 6:42 PM' },
@@ -11,6 +11,8 @@ export const SAMPLES = [
   { key: 'rider', label: 'Rider', file: 'samples/rider.jpg', role: 'THE RIDER', subline: 'COAST HIGHWAY · 7:15 PM' },
   { key: 'friends', label: 'Friends', file: 'samples/friends.jpg', role: 'THE CREW', subline: 'DINER ALLEY · 12:40 AM' },
   { key: 'pier', label: 'Pier', file: 'samples/pier.jpg', role: 'THE CAPTAIN', subline: 'MARINA DEL SOL · 7:48 PM' },
+  { key: 'yacht', label: 'Yacht', file: 'samples/yacht.jpg', role: 'THE WHEELMAN', subline: 'BAYFRONT · 6:15 PM' },
+  { key: 'dancer', label: 'Club', file: 'samples/dancer.jpg', role: 'THE WILDCARD', subline: 'CLUB NEON · 1:05 AM' },
 ];
 
 const MAX_PANELS = 7;
@@ -121,9 +123,7 @@ function render() {
 
 function panelRectsOnPreview() {
   const W = preview.width, H = preview.height;
-  const topH = H * 0.062, botH = H * 0.075;
-  const stage = { x: W * 0.014, y: topH + H * 0.006, w: W * 0.972, h: H - topH - botH - H * 0.012 };
-  const gap = Math.max(3, Math.min(W, H) * 0.008);
+  const { stage, gap } = coverGeometry(W, H);
   return panelRects(layoutById(state.layout), stage, gap);
 }
 
@@ -487,6 +487,10 @@ function runShot() {
   if (q.get('subtitle')) state.subtitle = q.get('subtitle');
   if (q.get('size')) state.size = q.get('size');
   if (q.get('tagline')) state.tagline = q.get('tagline');
+  if (q.get('credits')) state.credits = q.get('credits');
+  if (q.get('quote')) state.quote = q.get('quote');
+  if (q.get('quoteSource')) state.quoteSource = q.get('quoteSource');
+  if (q.get('volume')) state.volume = q.get('volume');
   if (shot === 'cover') {
     document.body.classList.add('shot-cover');
     document.title = `Cover — ${state.title}`;

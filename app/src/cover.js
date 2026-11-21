@@ -169,31 +169,16 @@ function drawRoleTab(ctx, rect, panel, grade, unit) {
   ctx.restore();
 }
 
-// The striped sunset title: an offscreen mask filled with horizontal bands.
+// The striped sunset title: a vertical gradient with hard colour stops,
+// which paints crisp horizontal bands straight into the letterforms.
 function drawStripedTitle(ctx, text, cx, cy, size, bands, outline, tiltDeg) {
-  const pad = size * 0.5;
   ctx.save();
-  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
-  const tw = ctx.measureText(text).width;
-  const off = document.createElement('canvas');
-  off.width = Math.ceil(tw + pad * 2);
-  off.height = Math.ceil(size * 1.5 + pad * 2);
-  const o = off.getContext('2d');
-  o.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
-  o.textBaseline = 'middle';
-  o.fillStyle = '#ffffff';
-  o.fillText(text, pad, off.height / 2 + size * 0.04);
-  o.globalCompositeOperation = 'source-in';
-  const n = bands.length;
-  for (let i = 0; i < n; i++) {
-    o.fillStyle = bands[i];
-    o.fillRect(0, (off.height / n) * i, off.width, off.height / n + 1);
-  }
   ctx.translate(cx, cy);
   ctx.rotate((tiltDeg * Math.PI) / 180);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  const tw = ctx.measureText(text).width;
   // Drop shadow.
   ctx.fillStyle = 'rgba(10,2,20,0.55)';
   ctx.fillText(text, size * 0.045, size * 0.075);
@@ -205,10 +190,17 @@ function drawStripedTitle(ctx, text, cx, cy, size, bands, outline, tiltDeg) {
   ctx.strokeStyle = 'rgba(255,255,255,0.92)';
   ctx.lineWidth = size * 0.045;
   ctx.strokeText(text, 0, 0);
-  // Striped fill.
-  ctx.drawImage(off, -off.width / 2, -off.height / 2);
+  // Striped fill: hard-stop gradient bands across the cap-height region.
+  const top = -size * 0.42, bottom = size * 0.42;
+  const g = ctx.createLinearGradient(0, top, 0, bottom);
+  const n = bands.length;
+  for (let i = 0; i < n; i++) {
+    g.addColorStop(i / n, bands[i]);
+    g.addColorStop((i + 1) / n, bands[i]);
+  }
+  ctx.fillStyle = g;
+  ctx.fillText(text, 0, 0);
   // Sparkle.
-  ctx.fillStyle = '#ffffff';
   drawStar(ctx, -tw / 2 + size * 0.08, -size * 0.42, size * 0.09, '#ffffff');
   ctx.restore();
 }
@@ -287,13 +279,28 @@ function drawGrain(ctx, W, H, seed) {
   ctx.restore();
 }
 
+// The poster's geometry: quote bar on top, photo stage, tagline ribbon band,
+// credits strip at the bottom. Shared by the renderer and the editor's
+// click/drag hit-testing so they never disagree.
+export function coverGeometry(W, H) {
+  const topH = H * 0.062;
+  const botH = H * 0.075;
+  const ribbonH = H * 0.048;
+  const stage = {
+    x: W * 0.014, y: topH + H * 0.006, w: W * 0.972,
+    h: H - topH - botH - ribbonH - H * 0.012,
+  };
+  const gap = Math.max(3, Math.min(W, H) * 0.008);
+  return { topH, botH, ribbonH, stage, gap };
+}
+
 export function renderCover(canvas, state, images) {
   const W = canvas.width, H = canvas.height;
   const ctx = canvas.getContext('2d');
   const layout = layoutById(state.layout);
   const grade = gradeById(state.grade);
   const unit = Math.min(W, H) / 34;
-  const gap = Math.max(3, Math.min(W, H) * 0.008);
+  const { topH, botH, ribbonH, stage, gap } = coverGeometry(W, H);
 
   // Backdrop.
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -301,9 +308,6 @@ export function renderCover(canvas, state, images) {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  const topH = H * 0.062;
-  const botH = H * 0.075;
-  const stage = { x: W * 0.014, y: topH + H * 0.006, w: W * 0.972, h: H - topH - botH - H * 0.012 };
   const rects = panelRects(layout, stage, gap);
 
   // Photo panels.
@@ -322,53 +326,72 @@ export function renderCover(canvas, state, images) {
   ctx.fillRect(stage.x, stage.y, stage.w, stage.h);
   ctx.restore();
 
-  // Role tabs.
-  rects.forEach((rect, i) => {
-    drawRoleTab(ctx, rect, state.panels[i] || {}, grade, unit);
-  });
-
-  // Top quote bar.
+  // Top quote bar. The quote and its source share the space between the
+  // stars and the volume tab, shrinking until both fit.
   ctx.save();
   ctx.fillStyle = 'rgba(12,4,20,0.92)';
   ctx.fillRect(0, 0, W, topH);
+  const starR = topH * 0.22;
+  const starEndX = W * 0.02 + 5 * starR * 2.4;
+  let volX = W;
+  let volW = 0;
+  if (state.volume) {
+    ctx.font = `700 ${Math.round(topH * 0.34)}px Anton, 'Arial Narrow', sans-serif`;
+    volW = ctx.measureText(state.volume).width + topH * 0.8;
+    volX = W - volW - W * 0.014;
+  }
   if (state.showQuote !== false && state.quote) {
-    const starR = topH * 0.22;
     let sx = W * 0.02;
     for (let i = 0; i < 5; i++) {
       drawStar(ctx, sx + starR, topH / 2, starR, '#ffd319');
       sx += starR * 2.4;
     }
+    const availX0 = starEndX + W * 0.008;
+    const availX1 = volX - W * 0.008;
+    const availW = Math.max(50, availX1 - availX0);
     const quote = `\u201C${state.quote}\u201D`;
-    const qSize = fitFontSize(ctx, quote, 'Anton, \'Arial Narrow\', sans-serif', 400, topH * 0.44, W * 0.58);
+    let qSize = fitFontSize(ctx, quote, 'Anton, \'Arial Narrow\', sans-serif', 400, topH * 0.44, availW * 0.72);
     ctx.font = `${qSize}px Anton, 'Arial Narrow', sans-serif`;
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(quote, W * 0.5, topH / 2 + topH * 0.03);
+    let qw = ctx.measureText(quote).width;
+    let srcW = 0;
     if (state.quoteSource) {
       ctx.font = `700 ${Math.round(topH * 0.26)}px 'Helvetica Neue', Arial, sans-serif`;
+      srcW = ctx.measureText(`\u2014 ${state.quoteSource}`).width;
+      while (qw + W * 0.012 + srcW > availW && qSize > 10) {
+        qSize -= 1;
+        ctx.font = `${qSize}px Anton, 'Arial Narrow', sans-serif`;
+        qw = ctx.measureText(quote).width;
+      }
+      if (qw + W * 0.012 + srcW > availW) srcW = 0;
+    }
+    const totalW = qw + (srcW ? W * 0.012 + srcW : 0);
+    const startX = availX0 + Math.max(0, (availW - totalW) / 2);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${qSize}px Anton, 'Arial Narrow', sans-serif`;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(quote, startX, topH / 2 + topH * 0.03);
+    if (srcW) {
+      ctx.font = `700 ${Math.round(topH * 0.26)}px 'Helvetica Neue', Arial, sans-serif`;
       ctx.fillStyle = grade.accent;
-      const qw = ctx.measureText(quote).width;
-      ctx.textAlign = 'left';
-      ctx.fillText(`\u2014 ${state.quoteSource}`, W * 0.5 + qw / 2 + W * 0.012, topH / 2 + topH * 0.03);
+      ctx.fillText(`\u2014 ${state.quoteSource}`, startX + qw + W * 0.012, topH / 2 + topH * 0.03);
     }
   }
   if (state.volume) {
     ctx.font = `700 ${Math.round(topH * 0.34)}px Anton, 'Arial Narrow', sans-serif`;
-    const vw = ctx.measureText(state.volume).width + topH * 0.8;
     ctx.fillStyle = grade.accent;
     ctx.beginPath();
-    const vx = W - vw - W * 0.014, vy = topH * 0.16;
-    ctx.moveTo(vx + topH * 0.2, vy);
-    ctx.lineTo(vx + vw, vy);
-    ctx.lineTo(vx + vw - topH * 0.2, vy + topH * 0.68);
-    ctx.lineTo(vx, vy + topH * 0.68);
+    const vy = topH * 0.16;
+    ctx.moveTo(volX + topH * 0.2, vy);
+    ctx.lineTo(volX + volW, vy);
+    ctx.lineTo(volX + volW - topH * 0.2, vy + topH * 0.68);
+    ctx.lineTo(volX, vy + topH * 0.68);
     ctx.closePath();
     ctx.fill();
     ctx.fillStyle = '#160a1e';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(state.volume, vx + vw / 2, vy + topH * 0.36);
+    ctx.fillText(state.volume, volX + volW / 2, vy + topH * 0.36);
   }
   ctx.restore();
 
@@ -401,10 +424,15 @@ export function renderCover(canvas, state, images) {
     ctx.restore();
   }
 
-  // Tagline ribbon.
+  // Role tabs.
+  rects.forEach((rect, i) => {
+    drawRoleTab(ctx, rect, state.panels[i] || {}, grade, unit);
+  });
+
+  // Tagline ribbon, in its own band between the stage and the credits.
   if (state.showTagline !== false && state.tagline) {
     ctx.save();
-    const tagY = stage.y + stage.h - H * 0.012;
+    const tagY = H - botH - ribbonH / 2;
     const fs = fitFontSize(ctx, state.tagline, 'Anton, \'Arial Narrow\', sans-serif', 400, H * 0.026, W * 0.72);
     ctx.font = `${fs}px Anton, 'Arial Narrow', sans-serif`;
     const tw = ctx.measureText(state.tagline).width;
