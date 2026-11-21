@@ -138,7 +138,7 @@ function panelAt(px, py) {
 
 function selectPanel(i) {
   selectedPanel = Math.max(0, Math.min(i, layoutById(state.layout).panels - 1));
-  syncPanelControls();
+  syncPanelFields();
   document.querySelectorAll('#panelList button').forEach((b, j) => {
     b.classList.toggle('active', j === selectedPanel);
   });
@@ -247,11 +247,17 @@ function buildPanelList() {
     b.addEventListener('click', () => selectPanel(i));
     list.appendChild(b);
   }
-  selectPanel(selectedPanel);
+  list.querySelectorAll('button').forEach((b, j) => {
+    b.classList.toggle('active', j === selectedPanel);
+  });
 }
 
 function syncPanelControls() {
   buildPanelList();
+  syncPanelFields();
+}
+
+function syncPanelFields() {
   const p = state.panels[selectedPanel] || {};
   $('roleInput').value = p.role || '';
   $('sublineInput').value = p.subline || '';
